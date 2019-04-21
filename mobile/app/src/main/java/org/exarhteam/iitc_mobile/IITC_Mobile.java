@@ -118,6 +118,11 @@ public class IITC_Mobile extends AppCompatActivity
 
         super.onCreate(savedInstanceState);
 
+        if (Build.VERSION.SDK_INT >= 21) {
+            // This is for the ability to create map screenshots.
+            WebView.enableSlowWholeDocumentDraw();
+        }
+
         setContentView(R.layout.activity_main);
         mImageLoading = findViewById(R.id.imageLoading);
         mIitcWebView = (IITC_WebView) findViewById(R.id.iitc_webview);
