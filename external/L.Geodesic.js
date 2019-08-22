@@ -1,10 +1,9 @@
-/*
-Geodesic extension to Leaflet library, by Fragger
-https://github.com/Fragger/Leaflet.Geodesic
-Version from master branch, dated Apr 26, 2013
-Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
-*/
 (function () {
+  // constants
+  var d2r = Math.PI/180.0;
+  var r2d = 180.0/Math.PI;
+  var earthR = 6367000.0; // earth radius in meters (doesn't have to be exact)
+
   function geodesicPoly(Klass, fill) {
     return Klass.extend({
       initialize: function (latlngs, options) {
@@ -22,12 +21,6 @@ Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
         this._latlngsinit.push(L.latLng(latlng));
         return this.redraw();
       },
-      spliceLatLngs: function () { // (Number index, Number howMany)
-        var removed = [].splice.apply(this._latlngsinit, arguments);
-        this._convertLatLngs(this._latlngsinit);
-        this.redraw();
-        return removed;
-      },
       redraw: function() {
         this._latlngs = this._convertLatLngs(L.geodesicConvertLines(this._latlngsinit, fill));
         return Klass.prototype.redraw.call(this);
@@ -36,15 +29,12 @@ Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
   }
 
   // alternative geodesic line intermediate points function
-  // as north/south lines have very little curvature in the projection, we cam use longitude (east/west) seperation
-  // to calculate intermediate points. hopeefully this will avoid the rounding issues seen in the full intermediate
+  // as north/south lines have very little curvature in the projection, we can use longitude (east/west) seperation
+  // to calculate intermediate points. hopefully this will avoid the rounding issues seen in the full intermediate
   // points code that have been seen
   function geodesicConvertLine(startLatLng, endLatLng, convertedPoints) {
-    var R = 6367000.0; // earth radius in meters (doesn't have to be exact)
-    var d2r = Math.PI/180.0;
-    var r2d = 180.0/Math.PI;
 
-    // maths based on http://williams.best.vwh.net/avform.htm#Int
+    // maths based on https://edwilliams.org/avform.htm#Int
 
     var lat1 = startLatLng.lat * d2r;
     var lat2 = endLatLng.lat * d2r;
@@ -53,7 +43,7 @@ Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
 
     var dLng = lng2-lng1;
 
-    var segments = Math.floor(Math.abs(dLng * R / 5000));
+    var segments = Math.floor(Math.abs(dLng * earthR / 5000));
 
     if (segments > 1) {
       // pre-calculate some constant values for the loop
@@ -70,7 +60,7 @@ Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
       for (var i=1; i < segments; i++) {
         var iLng = lng1+dLng*(i/segments);
         var iLat = Math.atan( (sinLat1CosLat2*Math.sin(lng2-iLng) + sinLat2CosLat1*Math.sin(iLng-lng1))
-                              / cosLat1CosLat2SinDLng)
+                              / cosLat1CosLat2SinDLng);
 
         var point = L.latLng ( [iLat*r2d, iLng*r2d] );
         convertedPoints.push(point);
@@ -83,7 +73,7 @@ Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
 
 
   L.geodesicConvertLines = function (latlngs, fill) {
-    if (latlngs.length == 0) {
+    if (latlngs.length === 0) {
       return [];
     }
 
@@ -121,36 +111,21 @@ Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
     geodesiclatlngs = geodesiclatlngs.map(function(a){ return L.latLng(a.lat, a.lng+lngOffset); });
 
     return geodesiclatlngs;
-  }
-  
-  L.GeodesicPolyline = geodesicPoly(L.Polyline, 0);
-  L.GeodesicPolygon = geodesicPoly(L.Polygon, 1);
+  };
 
-  //L.GeodesicMultiPolyline = createMulti(L.GeodesicPolyline);
-  //L.GeodesicMultiPolygon = createMulti(L.GeodesicPolygon);
-
-  /*L.GeodesicMultiPolyline = L.MultiPolyline.extend({
-    initialize: function (latlngs, options) {
-      L.MultiPolyline.prototype.initialize.call(this, L.geodesicConvertLines(latlngs), options);
-    }
-  });*/
-
-  /*L.GeodesicMultiPolygon = L.MultiPolygon.extend({
-    initialize: function (latlngs, options) {
-      L.MultiPolygon.prototype.initialize.call(this, L.geodesicConvertLines(latlngs), options);
-    }
-  });*/
+  L.GeodesicPolyline = geodesicPoly(L.Polyline, false);
+  L.GeodesicPolygon = geodesicPoly(L.Polygon, true);
 
 
   L.GeodesicCircle = L.Polygon.extend({
-    initialize: function (latlng, radius, options) {
+    initialize: function (latlng, options, legacyOptions) {
+      if (typeof options === 'number') {
+        // Backwards compatibility with 0.7.x factory (latlng, radius, options?)
+        options = L.extend({}, legacyOptions, {radius: options});
+      }
       this._latlng = L.latLng(latlng);
-      this._mRadius = radius;
-      this._radius = 11; // stub property to workaround https://github.com/IITC-CE/ingress-intel-total-conversion/issues/178
-                         // upstream report: https://github.com/Leaflet/Leaflet/issues/6656
-
-      points = this._calcPoints();
-
+      this._radius = options.radius; // note: https://github.com/Leaflet/Leaflet/issues/6656
+      var points = this._calcPoints();
       L.Polygon.prototype.initialize.call(this, points, options);
     },
 
@@ -160,15 +135,14 @@ Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
 
     setLatLng: function (latlng) {
       this._latlng = L.latLng(latlng);
-      points = this._calcPoints();
+      var points = this._calcPoints();
       this.setLatLngs(points);
     },
 
     setRadius: function (radius) {
-      this._mRadius = radius;
-      points = this._calcPoints();
+      this._radius = radius;
+      var points = this._calcPoints();
       this.setLatLngs(points);
-
     },
 
     getLatLng: function () {
@@ -176,18 +150,14 @@ Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
     },
 
     getRadius: function() {
-      return this._mRadius;
+      return this._radius;
     },
 
-
     _calcPoints: function() {
-      var R = 6367000.0; //earth radius in meters (approx - taken from leaflet source code)
-      var d2r = Math.PI/180.0;
-      var r2d = 180.0/Math.PI;
-//console.log("geodesicCircle: radius = "+this._mRadius+"m, centre "+this._latlng.lat+","+this._latlng.lng);
+//console.log("geodesicCircle: radius = "+this._radius+"m, centre "+this._latlng.lat+","+this._latlng.lng);
 
       // circle radius as an angle from the centre of the earth
-      var radRadius = this._mRadius / R;
+      var radRadius = this._radius / earthR;
 
 //console.log(" (radius in radians "+radRadius);
 
@@ -206,16 +176,16 @@ Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
         var lng = centreLng + Math.atan2(Math.sin(angle)*sinRadRadius*cosCentreLat, cosRadRadius-sinCentreLat*Math.sin(lat));
 
         return L.latLng(lat * r2d,lng * r2d);
-      }
+      };
 
 
-      var segments = Math.max(48,Math.floor(this._mRadius/1000));
+      var segments = Math.max(48,Math.floor(this._radius/1000));
 //console.log(" (drawing circle as "+segments+" lines)");
       var points = [];
       for (var i=0; i<segments; i++) {
         var angle = Math.PI*2/segments*i;
 
-        var point = calcLatLngAtAngle(angle)
+        var point = calcLatLngAtAngle(angle);
         points.push ( point );
       }
 
@@ -232,20 +202,9 @@ Modified by qnstie 2013-07-17 to maintain compatibility with Leaflet.draw
   L.geodesicPolygon = function (latlngs, options) {
     return new L.GeodesicPolygon(latlngs, options);
   };
-  
-  /*
-  L.geodesicMultiPolyline = function (latlngs, options) {
-    return new L.GeodesicMultiPolyline(latlngs, options);
-  };
-
-  L.geodesicMultiPolygon = function (latlngs, options) {
-    return new L.GeodesicMultiPolygon(latlngs, options);
-  };
-
-  */
 
   L.geodesicCircle = function (latlng, radius, options) {
     return new L.GeodesicCircle(latlng, radius, options);
-  }
+  };
 
 }());
