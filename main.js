@@ -204,6 +204,11 @@ window.overlayStatus = {};
 // overwrite data
 if(typeof window.plugin !== 'function') window.plugin = function() {};
 
+window.ulog = (function (module) {
+  @@INCLUDERAW:external/ulog.min.js@@
+  return module;
+}({})).exports;
+
 @@INJECTCODE@@
 
   // fixed Addons

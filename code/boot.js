@@ -321,7 +321,7 @@ window.setupMap = function() {
     var z = map.getZoom();
     if (z != parseInt(z))
     {
-      console.warn('Non-integer zoom level at zoomend: '+z+' - trying to fix...');
+      log.warn('Non-integer zoom level at zoomend: '+z+' - trying to fix...');
       map.setZoom(parseInt(z), {animate:false});
     }
   });
@@ -558,7 +558,7 @@ window.setupLayerChooserApi = function() {
       if(typeof android != 'undefined')
         window.layerChooser.getLayers();
     } catch(e) {
-      console.error(e);
+      log.error(e);
     }
     // call through
     return _update.apply(this, arguments);
@@ -569,7 +569,7 @@ window.setupLayerChooserApi = function() {
     if(typeof android != 'undefined')
       window.layerChooser.getLayers();
   } catch(e) {
-    console.error(e);
+    log.error(e);
   }
 }
 
@@ -674,7 +674,7 @@ function prepPluginsToLoad() {
     var v = data && data.priority;
     var prio = priorities[v || 'normal'] || v;
     if (typeof prio !== 'number') {
-      console.warn('wrong plugin priority specified: ', v);
+      log.warn('wrong plugin priority specified: ', v);
       prio = priorities.normal;
     }
     return prio;
@@ -697,9 +697,9 @@ function prepPluginsToLoad() {
   // and collects info for About IITC
   function safeSetup (setup) {
     if (!setup) {
-      console.warn('plugin must provide setup function');
+      log.warn('plugin must provide setup function');
     } else if (!setup.info) {
-      console.warn('plugin does not have proper wrapper:',setup);
+      log.warn('plugin does not have proper wrapper:',setup);
     }
     var info = prepInfo(setup.info);
     pluginsInfo.push(info);
@@ -707,7 +707,7 @@ function prepPluginsToLoad() {
       setup.call(this);
     } catch (err) {
       var name = info.script.name || info.pluginId;
-      console.error('error starting plugin: ' + name + ', error: ' + err);
+      log.error('error starting plugin: ' + name + ', error: ' + err);
       info.error = err;
     }
   }
@@ -738,8 +738,8 @@ function boot() {
   if(!isSmartphone()) // TODO remove completely?
     window.debug.console.overwriteNativeIfRequired();
 
-  console.log('loading done, booting. Built: @@BUILDDATE@@');
-  if(window.deviceID) console.log('Your device ID: ' + window.deviceID);
+  log.log('loading done, booting. Built: @@BUILDDATE@@');
+  if(window.deviceID) log.log('Your device ID: ' + window.deviceID);
   window.runOnSmartphonesBeforeBoot();
 
   var loadPlugins = prepPluginsToLoad();
@@ -840,7 +840,7 @@ window.registerMarkerForOMS = function(marker) {
     window.oms.addMarker(marker);
 }
 
-try { console.log('Loading included JS now'); } catch(e) {}
+try { log.log('Loading included JS now'); } catch(e) {}
 @@INCLUDERAW:external/autolink-min.js@@
 
 window.L_NO_TOUCH = navigator.maxTouchPoints===0; // prevent mobile style on desktop https://github.com/IITC-CE/ingress-intel-total-conversion/pull/189
@@ -859,6 +859,6 @@ L.CanvasIconLayer = (function (module) {
 @@INCLUDERAW:external/taphold.js@@
 @@INCLUDERAW:external/jquery.qrcode.min.js@@
 
-try { console.log('done loading included JS'); } catch(e) {}
+try { log.log('done loading included JS'); } catch(e) {}
 
 $(boot);
