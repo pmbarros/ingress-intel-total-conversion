@@ -33,13 +33,6 @@ public class IITC_WebViewClient extends WebViewClient {
             "body, #dashboard_container, #map_canvas { background: #000 !important; }"
                     .getBytes());
 
-    public static final boolean isIntelUrl(String url) {
-        return
-            url.startsWith("https://intel.ingress.com") ||
-            url.matches("^https?://(?:intel\\.)?ingress\\.com/intel.*") ||
-            url.matches("^https?://(?:intel\\.)?ingress\\.com/mission.*");
-    }
-
     private final IITC_Mobile mIitc;
     private boolean mIitcInjected = false;
     private final String mIitcPath;
@@ -126,7 +119,7 @@ public class IITC_WebViewClient extends WebViewClient {
 
     @Override
     public void onPageFinished(final WebView view, final String url) {
-        if(isIntelUrl(url)) {
+        if(url.startsWith("https://intel.ingress.com")) {
             if (mIitcInjected) return;
             Log.d("injecting iitc..");
             loadScripts((IITC_WebView) view);
@@ -275,33 +268,37 @@ public class IITC_WebViewClient extends WebViewClient {
     // start non-ingress-intel-urls in another app...
     @Override
     public boolean shouldOverrideUrlLoading(final WebView view, final String url) {
-        Uri uri = Uri.parse(url);
-        
-        if (url.contains("conflogin") || url.contains("ServiceLogin") || url.contains("appengine.google.com")) {
-            Log.d("Google login");
-            return false;
-        }
-        else if (uri.getHost().contains(".google.") && "/url".equals(uri.getPath()) && uri.getQueryParameter("q") != null) {
-            Log.d("redirect to: " + uri.getQueryParameter("q"));
-            return shouldOverrideUrlLoading(view, uri.getQueryParameter("q"));
-        }
-        else if (url.contains("accounts.google.com/o/oauth2")) {
-            Log.d("redirect to: " + url);
-            Log.d("Authorize Sync plugin");
-            return false;
-        }
-        else if (isIntelUrl(url)) {
+        final Uri uri = Uri.parse(url);
+        final String uriHost = uri.getHost();
+        final String uriPath = uri.getPath();
+        final String uriQuery = uri.getQueryParameter("q");
+        if (uriHost.equals("intel.ingress.com")) {
             Log.d("intel link requested, reset app and load " + url);
             mIitc.reset();
             mIitc.setLoadingState(true);
             return false;
-        } else {
-            Log.d("no ingress intel link, start external app to load url: " + url);
-            final Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            // make new activity independent from iitcm
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            mIitc.startActivity(intent);
         }
+        if ((uriHost.startsWith("google.") || uriHost.contains(".google."))
+                && uriPath.equals("/url") && uriQuery != null) {
+            Log.d("redirect to: " + uriQuery);
+            return shouldOverrideUrlLoading(view, uriQuery);
+        }
+        if (uriHost.endsWith("facebook.com")
+                && (uriPath.contains("oauth") || uriPath.equals("/login.php") || uriPath.equals("/checkpoint/"))) {
+            Log.d("Facebook login");
+            return false;
+        }
+        if (uriHost.startsWith("accounts.google.") ||
+                 uriHost.startsWith("appengine.google.") ||
+                 uriHost.startsWith("accounts.youtube.")) {
+            Log.d("Google login");
+            return false;
+        }
+        Log.d("no ingress intel link, start external app to load url: " + url);
+        final Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+        // make new activity independent from iitcm
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        mIitc.startActivity(intent);
         return true;
     }
 }

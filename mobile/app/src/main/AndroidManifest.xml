@@ -34,7 +34,7 @@
                 <!-- No category needed, because the Intent will specify this class component -->
             </intent-filter>
 
-            <!-- Handles the implicit intent to VIEW the www.ingress.com/intel URI -->
+            <!-- Handles the implicit intent to VIEW the intel.ingress.com/ URI -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <action android:name="android.nfc.action.NDEF_DISCOVERED"/>
@@ -42,22 +42,24 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
 
-                <data
-                    android:host="*.ingress.com"
-                    android:pathPrefix="/intel"
-                    android:scheme="https"/>
-                <data
-                    android:host="*.ingress.com"
-                    android:pathPrefix="/intel"
-                    android:scheme="http"/>
-                <data
-                    android:host="*.ingress.com"
-                    android:pathPrefix="/mission/"
-                    android:scheme="https"/>
-                <data
-                    android:host="*.ingress.com"
-                    android:pathPrefix="/mission/"
-                    android:scheme="http"/>
+                <data android:scheme="http"/>
+                <data android:scheme="https"/>
+                <data android:host="intel.ingress.com"/>
+            </intent-filter>
+
+            <!-- Handles the implicit intent to VIEW legacy [www.]ingress.com/intel URI -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <action android:name="android.nfc.action.NDEF_DISCOVERED"/>
+
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+
+                <data android:scheme="http"/>
+                <data android:scheme="https"/>
+                <data android:host="ingress.com"/>
+                <data android:host="www.ingress.com"/>
+                <data android:pathPrefix="/intel"/>
             </intent-filter>
 
             <!-- Handles geo: URIs -->
@@ -96,7 +98,7 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
 
-                <data android:mimeType="application/x-javascript"/>
+                <data android:mimeType="application/javascript"/>
                 <data android:mimeType="text/javascript"/>
             </intent-filter>
             <intent-filter>
@@ -106,22 +108,11 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
 
-                <data
-                    android:host="*"
-                    android:pathPattern=".*\\.user.js"
-                    android:scheme="file"/>
-                <data
-                    android:host="*"
-                    android:pathPattern=".*\\.user.js"
-                    android:scheme="content"/>
-                <data
-                    android:host="*"
-                    android:pathPattern=".*\\.user.js"
-                    android:scheme="http"/>
-                <data
-                    android:host="*"
-                    android:pathPattern=".*\\.user.js"
-                    android:scheme="https"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:scheme="http"/>
+                <data android:scheme="https"/>
+                <data android:host="*" android:pathPattern=".*\\.user.js"/>
             </intent-filter>
         </activity>
 
@@ -154,6 +145,16 @@
             android:label="@string/activity_save_to_file"
             android:noHistory="false"
             android:theme="@android:style/Theme.Holo.Dialog"/>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths"/>
+        </provider>
 
         <!-- START Used for Samsung Multi-Window support -->
         <uses-library

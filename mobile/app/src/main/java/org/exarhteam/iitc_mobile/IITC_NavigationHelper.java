@@ -42,6 +42,8 @@ public class IITC_NavigationHelper extends ActionBarDrawerToggle implements OnIt
     private final View mDrawerRight;
     private final IITC_NotificationHelper mNotificationHelper;
 
+    private boolean mDexRunning = false;
+    private boolean mDexDesktopMode = true;
     private boolean mDesktopMode = false;
     private Pane mPane = Pane.MAP;
     private String mHighlighter = null;
@@ -55,6 +57,7 @@ public class IITC_NavigationHelper extends ActionBarDrawerToggle implements OnIt
         mDrawerLeft = (ListView) iitc.findViewById(R.id.left_drawer);
         mDrawerRight = iitc.findViewById(R.id.right_drawer);
         mDrawerLayout = (DrawerLayout) iitc.findViewById(R.id.drawer_layout);
+        mDexRunning = iitc.isDexRunning();
 
         mPrefs = PreferenceManager.getDefaultSharedPreferences(iitc);
 
@@ -88,7 +91,7 @@ public class IITC_NavigationHelper extends ActionBarDrawerToggle implements OnIt
             mDrawerLeft.setItemChecked(mDrawerLeft.getCheckedItemPosition(), false);
         }
 
-        if (mDesktopMode) {
+        if (isDesktopActive()) {
             mActionBar.setDisplayHomeAsUpEnabled(false); // Hide "up" indicator
             mActionBar.setHomeButtonEnabled(false); // Make icon unclickable
             mActionBar.setTitle(mIitc.getString(R.string.app_name));
@@ -122,7 +125,7 @@ public class IITC_NavigationHelper extends ActionBarDrawerToggle implements OnIt
             }
         }
 
-        final boolean mapVisible = mDesktopMode || mPane == Pane.MAP;
+        final boolean mapVisible = isDesktopActive() || mPane == Pane.MAP;
         if ("No Highlights".equals(mHighlighter) || isDrawerOpened() || mIitc.isLoading() || !mapVisible) {
             mActionBar.setSubtitle(null);
         } else {
@@ -165,6 +168,10 @@ public class IITC_NavigationHelper extends ActionBarDrawerToggle implements OnIt
 
     public boolean isDrawerOpened() {
         return mDrawerLayout.isDrawerOpen(mDrawerLeft) || mDrawerLayout.isDrawerOpen(mDrawerRight);
+    }
+
+    public boolean isDesktopActive() {
+        return (mDesktopMode || (mDexRunning && mDexDesktopMode));
     }
 
     @Override
@@ -221,7 +228,14 @@ public class IITC_NavigationHelper extends ActionBarDrawerToggle implements OnIt
         syncState();
     }
 
+    // Samsung DeX mode has been changed
+    public void onDexModeChanged(boolean activity) {
+        mDexRunning = activity;
+        updateViews();
+    }
+
     public void onPrefChanged() {
+        mDexDesktopMode = mPrefs.getBoolean( "pref_dex_desktop", true);
         mDesktopMode = mPrefs.getBoolean("pref_force_desktop", false);
         updateViews();
     }
@@ -293,7 +307,7 @@ public class IITC_NavigationHelper extends ActionBarDrawerToggle implements OnIt
         public static final Pane FACTION = new Pane("faction", "Faction", R.drawable.ic_action_cc_bcc);
         public static final Pane ALERTS = new Pane("alerts", "Alerts", R.drawable.ic_action_warning);
         public static final Pane INFO = new Pane("info", "Info", R.drawable.ic_action_about);
-        public static final Pane MAP = new Pane("map", "Map", R.drawable.ic_action_map);
+        public static final Pane MAP = new Pane("map", "Map", R.drawable.ic_map_white);
 
         private final int icon;
         public String label;

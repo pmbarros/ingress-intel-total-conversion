@@ -42,8 +42,7 @@ public class IITC_WebView extends WebView {
     private boolean mDisableJs = false;
     private final String mDesktopUserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:17.0)" +
             " Gecko/20130810 Firefox/17.0 Iceweasel/17.0.8";
-    private final String mMobileUserAgent = "Mozilla/5.0 (Android 6.0.1; Mobile; rv:62.0)"+
-            " Gecko/62.0 Firefox/62.0";
+    private String mMobileUserAgent;
             
 
     // init web view
@@ -75,6 +74,16 @@ public class IITC_WebView extends WebView {
 
         addJavascriptInterface(mJsInterface, "android");
         mSharedPrefs = PreferenceManager.getDefaultSharedPreferences(mIitc);
+
+        // Hack to work Google login page in old browser
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP &&
+                !mSharedPrefs.getBoolean("pref_fake_user_agent", false))
+            mSharedPrefs.edit().putBoolean("pref_fake_user_agent", true).apply();
+
+        final String original_ua = mSettings.getUserAgentString();
+        // remove ";wv " marker as Google blocks WebViews from using OAuth
+        // https://developer.chrome.com/multidevice/user-agent#webview_user_agent
+        mMobileUserAgent = original_ua.replace("; wv", "");
         setUserAgent();
 
         mNavHider = new Runnable() {

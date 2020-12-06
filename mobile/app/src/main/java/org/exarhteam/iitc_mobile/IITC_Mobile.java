@@ -15,6 +15,7 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.CompressFormat;
+import android.graphics.Canvas;
 import android.net.Uri;
 import android.nfc.NdefMessage;
 import android.nfc.NdefRecord;
@@ -27,17 +28,15 @@ import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
 import android.webkit.WebView;
-import android.widget.AdapterView;
-import android.widget.AdapterView.OnItemLongClickListener;
 import android.widget.EditText;
 import android.widget.ImageButton;
-import android.widget.ListView;
-import android.widget.PopupMenu;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.os.Build;
@@ -46,9 +45,13 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SearchView;
 import androidx.appcompat.widget.Toolbar;
-import androidx.core.view.MenuItemCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.melnykov.fab.FloatingActionButton;
 
 import org.exarhteam.iitc_mobile.IITC_NavigationHelper.Pane;
+import org.exarhteam.iitc_mobile.prefs.PluginPreferenceActivity;
 import org.exarhteam.iitc_mobile.prefs.PreferenceActivity;
 import org.exarhteam.iitc_mobile.share.ShareActivity;
 
@@ -68,8 +71,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class IITC_Mobile extends AppCompatActivity
-        implements OnSharedPreferenceChangeListener, NfcAdapter.CreateNdefMessageCallback, OnItemLongClickListener {
-    private static final String mIntelUrl = "https://intel.ingress.com/intel";
+        implements OnSharedPreferenceChangeListener, NfcAdapter.CreateNdefMessageCallback {
+    private static final String mIntelUrl = "https://intel.ingress.com/";
 
     private SharedPreferences mSharedPrefs;
     private IITC_FileManager mFileManager;
@@ -79,12 +82,17 @@ public class IITC_Mobile extends AppCompatActivity
     private IITC_MapSettings mMapSettings;
     private IITC_DeviceAccountLogin mLogin;
     private final Vector<ResponseHandler> mResponseHandlers = new Vector<ResponseHandler>();
+    private boolean mDexRunning = false;
+    private boolean mDexDesktopMode = true;
     private boolean mDesktopMode = false;
     private Set<String> mAdvancedMenu;
     private MenuItem mSearchMenuItem;
     private View mImageLoading;
-    private ListView mLvDebug;
+    public RecyclerView mLvDebug;
+    private View mLayoutDebug;
     private View mViewDebug;
+    private LinearLayoutManager llm;
+    public FloatingActionButton debugScrollButton;
     private ImageButton mBtnToggleMap;
     private EditText mEditCommand;
     private boolean mDebugging = false;
@@ -95,6 +103,10 @@ public class IITC_Mobile extends AppCompatActivity
     private final Stack<String> mDialogStack = new Stack<String>();
     private String mPermalink = null;
     private String mSearchTerm = "";
+    private IntentFilter mDesktopFilter;
+    private IITC_DebugHistory debugHistory;
+    private int debugHistoryPosition = -1;
+    private String debugInputStore = "";
 
     // Used for custom back stack handling
     private final Stack<Pane> mBackStack = new Stack<IITC_NavigationHelper.Pane>();
@@ -108,18 +120,58 @@ public class IITC_Mobile extends AppCompatActivity
         }
     };
 
+    // Setup receiver to detect if Samsung DeX mode has been changed
+	private final BroadcastReceiver mDesktopModeReceiver = new BroadcastReceiver() {
+		@Override
+    	public void onReceive(Context context, Intent intent) {
+        	String action = intent.getAction();
+
+        	if ("android.app.action.ENTER_KNOX_DESKTOP_MODE".equals(action)) {
+            	// Samsung DeX Mode has been entered
+            	mDexRunning = true;
+            	mNavigationHelper.onDexModeChanged(true);
+        	} else if ("android.app.action.EXIT_KNOX_DESKTOP_MODE".equals(action)) {
+            	// Samsung DeX mode has been exited
+            	mDexRunning = false;
+            	mNavigationHelper.onDexModeChanged(false);
+        	}
+    	}
+	};
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
+
+        // get status of Samsung DeX Mode at creation
+        Configuration config = getResources().getConfiguration();
+        try {
+            Class configClass = config.getClass();
+            if(configClass.getField("SEM_DESKTOP_MODE_ENABLED").getInt(configClass)
+                    == configClass.getField("semDesktopModeEnabled").getInt(config)) {
+                mDexRunning = true; // Samsung DeX mode enabled
+            }
+        } catch(NoSuchFieldException e) {
+            //Handle the NoSuchFieldException
+        } catch(IllegalAccessException e) {
+            //Handle the IllegalAccessException
+        } catch(IllegalArgumentException e) {
+            //Handle the IllegalArgumentException
+        }
+
         // enable progress bar above action bar
         // must be called BEFORE calling parent method
         requestWindowFeature(Window.FEATURE_PROGRESS);
 
         super.onCreate(savedInstanceState);
 
+        debugHistory = new IITC_DebugHistory(50);
+
         setContentView(R.layout.activity_main);
+        debugScrollButton = findViewById(R.id.debugScrollButton);
+
         mImageLoading = findViewById(R.id.imageLoading);
         mIitcWebView = (IITC_WebView) findViewById(R.id.iitc_webview);
-        mLvDebug = (ListView) findViewById(R.id.lvDebug);
+        mLayoutDebug = findViewById(R.id.layoutDebug);
+        mLvDebug = (RecyclerView) findViewById(R.id.lvDebug);
         mViewDebug = findViewById(R.id.viewDebug);
         mBtnToggleMap = (ImageButton) findViewById(R.id.btnToggleMapVisibility);
         mEditCommand = (EditText) findViewById(R.id.editCommand);
@@ -151,11 +203,17 @@ public class IITC_Mobile extends AppCompatActivity
         });
 
         mLvDebug.setAdapter(new IITC_LogAdapter(this));
-        mLvDebug.setOnItemLongClickListener(this);
+
+        llm = new LinearLayoutManager(this);
+        llm.setStackFromEnd(true);
+        mLvDebug.setLayoutManager(llm);
 
         // do something if user changed something in the settings
         mSharedPrefs = PreferenceManager.getDefaultSharedPreferences(this);
         mSharedPrefs.registerOnSharedPreferenceChangeListener(this);
+
+        // enable/disable mDexDesktopMode mode on menu create and url load
+        mDexDesktopMode = mSharedPrefs.getBoolean("pref_dex_desktop", true);
 
         // enable/disable mDesktopMode mode on menu create and url load
         mDesktopMode = mSharedPrefs.getBoolean("pref_force_desktop", false);
@@ -166,6 +224,14 @@ public class IITC_Mobile extends AppCompatActivity
                 .getStringSet("pref_android_menu", new HashSet<String>(Arrays.asList(menuDefaults)));
 
         mPersistentZoom = mSharedPrefs.getBoolean("pref_persistent_zoom", false);
+
+        Set<String> restoreDebugHstory = mSharedPrefs.getStringSet("debug_history", new HashSet<>());
+
+        if (restoreDebugHstory != null) {
+            for (String item : restoreDebugHstory) {
+                debugHistory.push(item);
+            }
+        }
 
         // get fullscreen status from settings
         mIitcWebView.updateFullscreenStatus();
@@ -188,6 +254,12 @@ public class IITC_Mobile extends AppCompatActivity
         // Clear the back stack
         mBackStack.clear();
 
+        // Setup Samsung DeX Desktop detection
+        mDesktopFilter = new IntentFilter();
+        mDesktopFilter.addAction("UiModeManager.SEM_ACTION_ENTER_KNOX_DESKTOP_MODE");
+        mDesktopFilter.addAction("UiModeManager.SEM_ACTION_EXIT_KNOX_DESKTOP_MODE");
+        registerReceiver(mDesktopModeReceiver, mDesktopFilter);
+
         // receive downloadManagers downloadComplete intent
         // afterwards install iitc update
         registerReceiver(mBroadcastReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
@@ -202,6 +274,9 @@ public class IITC_Mobile extends AppCompatActivity
     public void onSharedPreferenceChanged(final SharedPreferences sharedPreferences, final String key) {
         if (key.equals("pref_force_desktop")) {
             mDesktopMode = sharedPreferences.getBoolean("pref_force_desktop", false);
+            mNavigationHelper.onPrefChanged();
+        } else if (key.equals("pref_dex_desktop")) {
+            mDexDesktopMode = sharedPreferences.getBoolean( "pref_dex_desktop", true);
             mNavigationHelper.onPrefChanged();
         } else if (key.equals("pref_user_location_mode")) {
             final int mode = Integer.parseInt(mSharedPrefs.getString("pref_user_location_mode", "0"));
@@ -522,8 +597,12 @@ public class IITC_Mobile extends AppCompatActivity
     }
 
     public void switchToPane(final Pane pane) {
-        if (mDesktopMode) return;
+        if (mNavigationHelper.isDesktopActive()) return;
         mIitcWebView.loadUrl("javascript: window.show('" + pane.name + "');");
+    }
+
+    public boolean isDexRunning() {
+        return mDexRunning;
     }
 
     @Override
@@ -596,6 +675,10 @@ public class IITC_Mobile extends AppCompatActivity
             switch (item.getItemId()) {
                 case R.id.action_settings:
                     item.setVisible(true);
+                    break;
+
+                case R.id.menu_open_plugins:
+                    item.setVisible(enabled);
                     break;
 
                 case R.id.toggle_fullscreen:
@@ -675,6 +758,10 @@ public class IITC_Mobile extends AppCompatActivity
             case R.id.menu_send_screenshot:
                 sendScreenshot();
                 return true;
+            case R.id.menu_open_plugins:
+                final Intent intent_plugins = new Intent(this, PluginPreferenceActivity.class);
+                startActivity(intent_plugins);
+                return true;
             case R.id.menu_debug:
                 mDebugging = !mDebugging;
                 updateViews();
@@ -699,7 +786,7 @@ public class IITC_Mobile extends AppCompatActivity
 
     // vp=f enables mDesktopMode mode...vp=m is the default mobile view
     private String addUrlParam(final String url) {
-        return url + (url.contains("?") ? '&' : '?') + "vp=" + (mDesktopMode ? 'f' : 'm');
+        return url + (url.contains("?") ? '&' : '?') + "vp=" + (mNavigationHelper.isDesktopActive() ? 'f' : 'm');
     }
 
     public void reset() {
@@ -815,7 +902,7 @@ public class IITC_Mobile extends AppCompatActivity
     private void updateViews() {
         if (!mDebugging) {
             mViewDebug.setVisibility(View.GONE);
-            mLvDebug.setVisibility(View.GONE);
+            mLayoutDebug.setVisibility(View.GONE);
 
             if (mIsLoading && !mSharedPrefs.getBoolean("pref_disable_splash", false)) {
                 mIitcWebView.setVisibility(View.GONE);
@@ -837,13 +924,13 @@ public class IITC_Mobile extends AppCompatActivity
             }
 
             if (mShowMapInDebug) {
-                mBtnToggleMap.setImageResource(R.drawable.ic_action_view_as_list);
+                mBtnToggleMap.setImageResource(R.drawable.ic_view_list_white);
                 mIitcWebView.setVisibility(View.VISIBLE);
-                mLvDebug.setVisibility(View.GONE);
+                mLayoutDebug.setVisibility(View.GONE);
             } else {
-                mBtnToggleMap.setImageResource(R.drawable.ic_action_map);
+                mBtnToggleMap.setImageResource(R.drawable.ic_map_white);
                 mIitcWebView.setVisibility(View.GONE);
-                mLvDebug.setVisibility(View.VISIBLE);
+                mLayoutDebug.setVisibility(View.VISIBLE);
             }
         }
     }
@@ -857,6 +944,12 @@ public class IITC_Mobile extends AppCompatActivity
             Log.w(e);
             return;
         }
+        debugHistoryPosition = -1;
+        debugHistory.push(code);
+        mEditCommand.setText("");
+
+        Set<String> in = new HashSet<>(Arrays.asList(debugHistory.getStackArray()));
+        mSharedPrefs.edit().putStringSet("debug_history", in).apply();
 
         // throwing an exception will be reported by WebView
         final String js = "(function(obj){var result;" +
@@ -883,6 +976,75 @@ public class IITC_Mobile extends AppCompatActivity
     public void onClearLog(final View v)
     {
         ((IITC_LogAdapter) mLvDebug.getAdapter()).clear();
+    }
+
+    private void setDebugCursorToEnd() {
+        mEditCommand.setSelection(mEditCommand.getText().length());
+    }
+
+    /**
+     * onClick handler for R.id.btnDebugUp, assigned in activity_main.xml
+     */
+    public void onDebugHistoryUp(final View v)
+    {
+        if (debugHistoryPosition >= debugHistory.getSize()-1) return;
+
+        if (debugHistoryPosition < 0) {
+            debugInputStore = mEditCommand.getText().toString();
+        }
+
+        debugHistoryPosition += 1;
+        mEditCommand.setText(debugHistory.peek(debugHistoryPosition));
+        setDebugCursorToEnd();
+    }
+
+    /**
+     * onClick handler for R.id.btnDebugDown, assigned in activity_main.xml
+     */
+    public void onDebugHistoryDown(final View v)
+    {
+        if (debugHistoryPosition < 0) return;
+        debugHistoryPosition -= 1;
+
+        String text;
+        if (debugHistoryPosition < 0) {
+            text = debugInputStore;
+        } else {
+            text = debugHistory.peek(debugHistoryPosition);
+        }
+
+        mEditCommand.setText(text);
+        setDebugCursorToEnd();
+    }
+
+    private int debugCursorMove(boolean right) {
+        mEditCommand.requestFocus();
+        int pos = mEditCommand.getSelectionEnd();
+        int len = mEditCommand.length();
+
+        if (right && pos < len) {
+            pos += 1;
+        } else if (!right && pos > 0) {
+            pos -= 1;
+        }
+
+        return pos;
+    }
+
+    /**
+     * onClick handler for R.id.btnDebugLeft, assigned in activity_main.xml
+     */
+    public void onDebugCursorMoveRight(final View v)
+    {
+        mEditCommand.setSelection(debugCursorMove(true));
+    }
+
+    /**
+     * onClick handler for R.id.btnDebugRight, assigned in activity_main.xml
+     */
+    public void onDebugCursorMoveLeft(final View v)
+    {
+        mEditCommand.setSelection(debugCursorMove(false));
     }
 
     private void deleteUpdateFile() {
@@ -956,37 +1118,39 @@ public class IITC_Mobile extends AppCompatActivity
     }
 
     private void sendScreenshot() {
-        Bitmap bitmap = mIitcWebView.getDrawingCache();
-        if (bitmap == null) {
-            mIitcWebView.buildDrawingCache();
-            bitmap = mIitcWebView.getDrawingCache();
-            if (bitmap == null) {
-                Log.e("could not get bitmap!");
-                return;
-            }
-            bitmap = Bitmap.createBitmap(bitmap);
-            if (!mIitcWebView.isDrawingCacheEnabled()) mIitcWebView.destroyDrawingCache();
-        }
-        else {
-            bitmap = Bitmap.createBitmap(bitmap);
-        }
+        Toast.makeText(this, R.string.msg_prepare_screenshot, Toast.LENGTH_SHORT).show();
 
-        try {
-            final File cache = getExternalCacheDir();
-            final File file = File.createTempFile("IITC screenshot", ".png", cache);
-            if (!bitmap.compress(CompressFormat.PNG, 100, new FileOutputStream(file))) {
-                // quality is ignored by PNG
-                throw new IOException("Could not compress bitmap!");
-            }
-            startActivityForResult(ShareActivity.forFile(this, file, "image/png"), new ResponseHandler() {
-                @Override
-                public void onActivityResult(final int resultCode, final Intent data) {
-                    file.delete();
+        // Hack for Android >= 5.0 Lollipop
+        // When hardware acceleration is enabled, it is not possible to create a screenshot.
+        mIitcWebView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        // After switch to software render, we need to redraw the webview, but of all the ways I have worked only resizing.
+        final ViewGroup.LayoutParams savedLayoutParams = mIitcWebView.getLayoutParams();
+        mIitcWebView.setLayoutParams(new LinearLayout.LayoutParams(mIitcWebView.getWidth()+10, LinearLayout.LayoutParams.FILL_PARENT));
+        // This takes some time, so a timer is set.
+        // After the screenshot is taken, the webview size and render type are returned to their original state.
+
+        new Handler().postDelayed(() -> {
+            final Bitmap bitmap = Bitmap.createBitmap(mIitcWebView.getWidth(),mIitcWebView.getHeight(), Bitmap.Config.ARGB_8888);
+            mIitcWebView.draw(new Canvas(bitmap));
+
+            try {
+                mIitcWebView.setLayoutParams(savedLayoutParams);
+                mIitcWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                Toast.makeText(this, R.string.msg_take_screenshot, Toast.LENGTH_SHORT).show();
+                final File file = File.createTempFile("IITC screenshot", ".png", getExternalCacheDir());
+                if (!bitmap.compress(CompressFormat.PNG, 100, new FileOutputStream(file))) {
+                    // quality is ignored by PNG
+                    throw new IOException("Failed to compress bitmap");
                 }
-            });
-        } catch (final IOException e) {
-            Log.e("Could not generate screenshot", e);
-        }
+                startActivityForResult(ShareActivity.forFile(this, file, "image/png"), (resultCode, data) -> {
+                    file.delete();
+                });
+            } catch (final IOException e) {
+                Log.e("Failed to generate screenshot", e);
+            }
+
+        }, 2000);
+
     }
 
     @Override
@@ -1005,33 +1169,17 @@ public class IITC_Mobile extends AppCompatActivity
         return new NdefMessage(records);
     }
 
-    @Override
-    public boolean onItemLongClick(final AdapterView<?> parent, final View view, final int position, final long id) {
-        if (parent == mLvDebug) {
-            final IITC_LogAdapter adapter = ((IITC_LogAdapter) parent.getAdapter());
-            final Log.Message item = adapter.getItem(position);
+    public void clipboardCopy(String msg) {
+        mIitcWebView.getJSInterface().copy(msg);
+    }
 
-            final PopupMenu popupMenu = new PopupMenu(this, view);
-            popupMenu.getMenuInflater().inflate(R.menu.debug, popupMenu.getMenu());
+    public boolean isDebugEnd() {
+        int visibleItemCount = mLvDebug.getChildCount();
+        int totalItemCount = llm.getItemCount();
+        int firstVisibleItemPosition = llm.findFirstVisibleItemPosition();
 
-            popupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
-                @Override
-                public boolean onMenuItemClick(final MenuItem menuitem) {
-                    switch (menuitem.getItemId()) {
-                        case R.id.menu_copy:
-                            mIitcWebView.getJSInterface().copy(item.toString());
-                            return true;
-                        case R.id.menu_delete:
-                            adapter.remove(item);
-                            return true;
-                    }
-                    return false;
-                }
-            });
-
-            popupMenu.show();
-        }
-        return false;
+        return ((visibleItemCount + firstVisibleItemPosition) >= totalItemCount
+                && firstVisibleItemPosition >= 0 || llm.getItemCount() < 1);
     }
 
     @Override
