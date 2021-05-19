@@ -12,9 +12,9 @@
 #   public *;
 #}
 
-# Uncomment this to preserve the line number information for
+# Comment this to unreserved the line number information for
 # debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+-keepattributes *Annotation*,SourceFile,LineNumberTable
 
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
@@ -23,3 +23,6 @@
 -keepclassmembers class * extends android.webkit.WebChromeClient{
     public void openFileChooser(...);
 }
+
+-dontwarn javax.script.ScriptEngine
+-dontwarn javax.script.ScriptEngineManager

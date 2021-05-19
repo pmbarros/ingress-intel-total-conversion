@@ -7,7 +7,7 @@ window.decodeArray = function(){};
 
 
 function parseMod(arr) {
-  if(arr == null) { return null; }
+  if (!arr) { return null; }
   return {
     owner: arr[0],
     name: arr[1],
@@ -16,7 +16,7 @@ function parseMod(arr) {
   };
 }
 function parseResonator(arr) {
-  if(arr == null) { return null; }
+  if (!arr) { return null; }
   return {
     owner: arr[0],
     level: arr[1],
@@ -24,7 +24,7 @@ function parseResonator(arr) {
   };
 }
 function parseArtifactBrief(arr) {
-  if (arr === null) return null;
+  if (!arr) { return null; }
 
   // array index 0 is for fragments at the portal. index 1 is for target portals
   // each of those is two dimensional - not sure why. part of this is to allow for multiple types of artifacts,
@@ -50,9 +50,11 @@ function parseArtifactBrief(arr) {
 }
 
 function parseArtifactDetail(arr) {
-  if (arr == null) { return null; }
+  if (!arr) { return null; }
   // empty artifact data is pointless - ignore it
-  if (arr.length == 3 && arr[0] == "" && arr[1] == "" && arr[2].length == 0) { return null; }
+  if (arr.length === 3 && arr[0] === '' && arr[1] === '' && arr[2].length === 0) {
+    return null;
+  }
   return {
     type: arr[0],
     displayName: arr[1],
@@ -60,10 +62,19 @@ function parseArtifactDetail(arr) {
   };
 }
 
+function parseHistoryDetail(bitarray) {
+  return {
+    _raw: bitarray,
+    visited:  !!(bitarray & 1),
+    captured: !!(bitarray & 2),
+    scoutControlled:  !!(bitarray & 4),
+  };
+}
+
 
 //there's also a 'placeholder' portal - generated from the data in links/fields. only has team/lat/lng
 
-var CORE_PORTA_DATA_LENGTH = 4;
+var CORE_PORTAL_DATA_LENGTH = 4;
 function corePortalData(a) {
   return {
     // a[0] == type (always 'p')
@@ -71,9 +82,11 @@ function corePortalData(a) {
     latE6:         a[2],
     lngE6:         a[3]
   }
-};
+}
 
 var SUMMARY_PORTAL_DATA_LENGTH = 14;
+var DETAILED_PORTAL_DATA_LENGTH = SUMMARY_PORTAL_DATA_LENGTH+4;
+var EXTENDED_PORTAL_DATA_LENGTH = DETAILED_PORTAL_DATA_LENGTH+1;
 function summaryPortalData(a) {
   return {
     level:         a[4],
@@ -87,55 +100,78 @@ function summaryPortalData(a) {
     artifactBrief: parseArtifactBrief(a[12]),
     timestamp:     a[13]
   };
+}
+
+function detailsPortalData(a) {
+  return {
+    mods:           a[SUMMARY_PORTAL_DATA_LENGTH+0].map(parseMod),
+    resonators:     a[SUMMARY_PORTAL_DATA_LENGTH+1].map(parseResonator),
+    owner:          a[SUMMARY_PORTAL_DATA_LENGTH+2],
+    artifactDetail: parseArtifactDetail(a[SUMMARY_PORTAL_DATA_LENGTH+3])
+  }
+}
+
+function extendedPortalData(a) {
+  return {
+    history: parseHistoryDetail(a[DETAILED_PORTAL_DATA_LENGTH] || 0),
+  }
+}
+
+
+window.decodeArray.dataLen = {
+  core: [CORE_PORTAL_DATA_LENGTH],
+  summary: [SUMMARY_PORTAL_DATA_LENGTH],
+  detailed: [EXTENDED_PORTAL_DATA_LENGTH, DETAILED_PORTAL_DATA_LENGTH],
+  extended: [EXTENDED_PORTAL_DATA_LENGTH, SUMMARY_PORTAL_DATA_LENGTH],
+  anyknown: [CORE_PORTAL_DATA_LENGTH, SUMMARY_PORTAL_DATA_LENGTH, DETAILED_PORTAL_DATA_LENGTH, EXTENDED_PORTAL_DATA_LENGTH]
 };
 
-var DETAILED_PORTAL_DATA_LENGTH = SUMMARY_PORTAL_DATA_LENGTH+4;
-
-
-window.decodeArray.portalSummary = function(a) {
-  if (!a) return undefined;
+window.decodeArray.portal = function(a, details) {
+  if (!a) {
+    log.warn('Argument not specified');
+    return;
+  }
 
   if (a[0] !== 'p') {
-    throw new Error('Error: decodeArray.portalSUmmary - not a portal');
+    throw new Error('decodeArray.portal: not a portal');
   }
 
-  if (a.length == CORE_PORTA_DATA_LENGTH) {
-    return corePortalData(a);
-  }
-
-  // NOTE: allow for either summary or detailed portal data to be passed in here, as details are sometimes
-  // passed into code only expecting summaries
-  if (a.length != SUMMARY_PORTAL_DATA_LENGTH && a.length != DETAILED_PORTAL_DATA_LENGTH) {
-    log.warn('Portal summary length changed - portal details likely broken!');
+  details = details || 'anyknown';
+  var expected = decodeArray.dataLen[details];
+  if (expected.indexOf(a.length) === -1) {
+    log.warn('Unexpected portal data length: ' + a.length + ' (' + details + ')');
     debugger;
   }
 
-  return $.extend(corePortalData(a), summaryPortalData(a));
-}
+  var data = corePortalData(a);
 
-window.decodeArray.portalDetail = function(a) {
-  if (!a) return undefined;
-
-  if (a[0] !== 'p') {
-    throw new Error('Error: decodeArray.portalDetail - not a portal');
+  if (a.length >= SUMMARY_PORTAL_DATA_LENGTH) {
+    $.extend(data, summaryPortalData(a));
   }
 
-  if (a.length != DETAILED_PORTAL_DATA_LENGTH) {
-    log.warn('Portal detail length changed - portal details may be wrong');
-    debugger;
+  if (a.length >= DETAILED_PORTAL_DATA_LENGTH) {
+    if (a[SUMMARY_PORTAL_DATA_LENGTH]) {
+      $.extend(data, detailsPortalData(a));
+    } else if (details === 'detailed') {
+      log.warn('Portal details missing');
+      debugger;
+    }
   }
 
-  //TODO look at the array values, make a better guess as to which index the mods start at, rather than using the hard-coded SUMMARY_PORTAL_DATA_LENGTH constant
+  if (a.length >= EXTENDED_PORTAL_DATA_LENGTH || details === 'extended' || details === 'detailed') {
+    $.extend(data, extendedPortalData(a));
+    if (data.history && data.history.captured && !data.history.visited) {
+      log.warn('Inconsistent history data found in portal "' + data.title + '"');
+    }
+  }
 
+  return data;
+};
 
-  // the portal details array is just an extension of the portal summary array
-  // to allow for niantic adding new items into the array before the extended details start,
-  // use the length of the summary array
-  return $.extend(corePortalData(a), summaryPortalData(a),{
-    mods:      a[SUMMARY_PORTAL_DATA_LENGTH+0].map(parseMod),
-    resonators:a[SUMMARY_PORTAL_DATA_LENGTH+1].map(parseResonator),
-    owner:     a[SUMMARY_PORTAL_DATA_LENGTH+2],
-    artifactDetail:  parseArtifactDetail(a[SUMMARY_PORTAL_DATA_LENGTH+3]),
-  });
-  
-}
+window.decodeArray.portalSummary = function(a) { // deprecated!!
+  return window.decodeArray.portal(a, 'summary');
+};
+
+window.decodeArray.portalDetail = function(a) { // deprecated!!
+  return window.decodeArray.portal(a, 'detailed');
+};

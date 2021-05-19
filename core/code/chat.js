@@ -78,14 +78,20 @@ window.chat.genPostData = function(channel, storageHash, getOlderMsgs) {
     chat._faction.data = {};
     chat._faction.oldestTimestamp = -1;
     chat._faction.newestTimestamp = -1;
+    delete chat._faction.oldestGUID;
+    delete chat._faction.newestGUID;
 
     chat._public.data = {};
     chat._public.oldestTimestamp = -1;
     chat._public.newestTimestamp = -1;
+    delete chat._public.oldestGUID;
+    delete chat._public.newestGUID;
 
     chat._alerts.data = {};
     chat._alerts.oldestTimestamp = -1;
     chat._alerts.newestTimestamp = -1;
+    delete chat._alerts.oldestGUID;
+    delete chat._alerts.newestGUID;
 
     chat._oldBBox = b;
   }
@@ -105,7 +111,10 @@ window.chat.genPostData = function(channel, storageHash, getOlderMsgs) {
 
   if(getOlderMsgs) {
     // ask for older chat when scrolling up
-    data = $.extend(data, {maxTimestampMs: storageHash.oldestTimestamp});
+    data = $.extend(data, {
+      maxTimestampMs: storageHash.oldestTimestamp,
+      plextContinuationGuid: storageHash.oldestGUID
+    });
   } else {
     // ask for newer chat
     var min = storageHash.newestTimestamp;
@@ -124,7 +133,10 @@ window.chat.genPostData = function(channel, storageHash, getOlderMsgs) {
     // work.
     // Currently this edge case is not handled. Let’s see if this is a
     // problem in crowded areas.
-    $.extend(data, {minTimestampMs: min});
+    $.extend(data, {
+      minTimestampMs: min,
+      plextContinuationGuid: storageHash.newestGUID
+    });
     // when requesting with an actual minimum timestamp, request oldest rather than newest first.
     // this matches the stock intel site, and ensures no gaps when continuing after an extended idle period
     if (min > -1) $.extend(data, {ascendingTimestampOrder: true});
@@ -149,7 +161,7 @@ window.chat.requestFaction = function(getOlderMsgs, isRetry) {
   var r = window.postAjax(
     'getPlexts',
     d,
-    function(data, textStatus, jqXHR) { chat.handleFaction(data, getOlderMsgs); },
+    function(data, textStatus, jqXHR) { chat.handleFaction(data, getOlderMsgs, d.ascendingTimestampOrder); },
     isRetry
       ? function() { window.chat._requestFactionRunning = false; }
       : function() { window.chat.requestFaction(getOlderMsgs, true) }
@@ -158,7 +170,7 @@ window.chat.requestFaction = function(getOlderMsgs, isRetry) {
 
 
 window.chat._faction = {data:{}, oldestTimestamp:-1, newestTimestamp:-1};
-window.chat.handleFaction = function(data, olderMsgs) {
+window.chat.handleFaction = function(data, olderMsgs, ascendingTimestampOrder) {
   chat._requestFactionRunning = false;
   $("#chatcontrols a:contains('faction')").removeClass('loading');
 
@@ -167,11 +179,16 @@ window.chat.handleFaction = function(data, olderMsgs) {
     return log.warn('faction chat error. Waiting for next auto-refresh.');
   }
 
-  if(data.result.length === 0) return;
+  if (!data.result.length && !$('#chatfaction').data('needsClearing')) {
+    // no new data and current data in chat._faction.data is already rendered
+    return;
+  }
 
-  var old = chat._faction.oldestTimestamp;
-  chat.writeDataToHash(data, chat._faction, false, olderMsgs);
-  var oldMsgsWereAdded = old !== chat._faction.oldestTimestamp;
+  $('#chatfaction').data('needsClearing', null);
+
+  var old = chat._faction.oldestGUID;
+  chat.writeDataToHash(data, chat._faction, false, olderMsgs, ascendingTimestampOrder);
+  var oldMsgsWereAdded = old !== chat._faction.oldestGUID;
 
   runHooks('factionChatDataAvailable', {raw: data, result: data.result, processed: chat._faction.data});
 
@@ -198,7 +215,7 @@ window.chat.requestPublic = function(getOlderMsgs, isRetry) {
   var r = window.postAjax(
     'getPlexts',
     d,
-    function(data, textStatus, jqXHR) { chat.handlePublic(data, getOlderMsgs); },
+    function(data, textStatus, jqXHR) { chat.handlePublic(data, getOlderMsgs, d.ascendingTimestampOrder); },
     isRetry
       ? function() { window.chat._requestPublicRunning = false; }
       : function() { window.chat.requestPublic(getOlderMsgs, true) }
@@ -206,7 +223,7 @@ window.chat.requestPublic = function(getOlderMsgs, isRetry) {
 }
 
 window.chat._public = {data:{}, oldestTimestamp:-1, newestTimestamp:-1};
-window.chat.handlePublic = function(data, olderMsgs) {
+window.chat.handlePublic = function(data, olderMsgs, ascendingTimestampOrder) {
   chat._requestPublicRunning = false;
   $("#chatcontrols a:contains('all')").removeClass('loading');
 
@@ -215,11 +232,16 @@ window.chat.handlePublic = function(data, olderMsgs) {
     return log.warn('public chat error. Waiting for next auto-refresh.');
   }
 
-  if(data.result.length === 0) return;
+  if (!data.result.length && !$('#chatall').data('needsClearing')) {
+    // no new data and current data in chat._public.data is already rendered
+    return;
+  }
 
-  var old = chat._public.oldestTimestamp;
-  chat.writeDataToHash(data, chat._public, undefined, olderMsgs);   //NOTE: isPublic passed as undefined - this is the 'all' channel, so not really public or private
-  var oldMsgsWereAdded = old !== chat._public.oldestTimestamp;
+  $('#chatall').data('needsClearing', null);
+
+  var old = chat._public.oldestGUID;
+  chat.writeDataToHash(data, chat._public, undefined, olderMsgs, ascendingTimestampOrder);   //NOTE: isPublic passed as undefined - this is the 'all' channel, so not really public or private
+  var oldMsgsWereAdded = old !== chat._public.oldestGUID;
 
   runHooks('publicChatDataAvailable', {raw: data, result: data.result, processed: chat._public.data});
 
@@ -247,7 +269,7 @@ window.chat.requestAlerts = function(getOlderMsgs, isRetry) {
   var r = window.postAjax(
     'getPlexts',
     d,
-    function(data, textStatus, jqXHR) { chat.handleAlerts(data, getOlderMsgs); },
+    function(data, textStatus, jqXHR) { chat.handleAlerts(data, getOlderMsgs, d.ascendingTimestampOrder); },
     isRetry
       ? function() { window.chat._requestAlertsRunning = false; }
       : function() { window.chat.requestAlerts(getOlderMsgs, true) }
@@ -256,7 +278,7 @@ window.chat.requestAlerts = function(getOlderMsgs, isRetry) {
 
 
 window.chat._alerts = {data:{}, oldestTimestamp:-1, newestTimestamp:-1};
-window.chat.handleAlerts = function(data, olderMsgs) {
+window.chat.handleAlerts = function(data, olderMsgs, ascendingTimestampOrder) {
   chat._requestAlertsRunning = false;
   $("#chatcontrols a:contains('alerts')").removeClass('loading');
 
@@ -268,7 +290,7 @@ window.chat.handleAlerts = function(data, olderMsgs) {
   if(data.result.length === 0) return;
 
   var old = chat._alerts.oldestTimestamp;
-  chat.writeDataToHash(data, chat._alerts, undefined, olderMsgs); //NOTE: isPublic passed as undefined - it's nether public or private!
+  chat.writeDataToHash(data, chat._alerts, undefined, olderMsgs, ascendingTimestampOrder); //NOTE: isPublic passed as undefined - it's nether public or private!
   var oldMsgsWereAdded = old !== chat._alerts.oldestTimestamp;
 
 // no hoot for alerts - API change planned here...
@@ -299,7 +321,36 @@ window.chat.nicknameClicked = function(event, nickname) {
   return false;
 }
 
-window.chat.writeDataToHash = function(newData, storageHash, isPublicChannel, isOlderMsgs) {
+window.chat.writeDataToHash = function(newData, storageHash, isPublicChannel, isOlderMsgs, isAscendingOrder) {
+
+  if (newData.result.length > 0) {
+    //track oldest + newest timestamps/GUID
+    var first = {
+      guid: newData.result[0][0],
+      time: newData.result[0][1]
+    };
+    var last = {
+      guid: newData.result[newData.result.length-1][0],
+      time: newData.result[newData.result.length-1][1]
+    };
+    if (isAscendingOrder) {
+      var temp = first;
+      first = last;
+      last = temp;
+    }
+    if (storageHash.oldestTimestamp === -1 || storageHash.oldestTimestamp >= last.time) {
+      if (isOlderMsgs || storageHash.oldestTimestamp != last.time) {
+        storageHash.oldestTimestamp = last.time;
+        storageHash.oldestGUID = last.guid;
+      }
+    }
+    if (storageHash.newestTimestamp === -1 || storageHash.newestTimestamp <= first.time) {
+      if (!isOlderMsgs || storageHash.newestTimestamp != first.time) {
+        storageHash.newestTimestamp = first.time;
+        storageHash.newestGUID = first.guid;
+      }
+    }
+  }
   $.each(newData.result, function(ind, json) {
     // avoid duplicates
     if(json[0] in storageHash.data) return true;
@@ -311,10 +362,6 @@ window.chat.writeDataToHash = function(newData, storageHash, isPublicChannel, is
     var team = json[2].plext.team === 'RESISTANCE' ? TEAM_RES : TEAM_ENL;
     var auto = json[2].plext.plextType !== 'PLAYER_GENERATED';
     var systemNarrowcast = json[2].plext.plextType === 'SYSTEM_NARROWCAST';
-
-    //track oldest + newest timestamps
-    if (storageHash.oldestTimestamp === -1 || storageHash.oldestTimestamp > time) storageHash.oldestTimestamp = time;
-    if (storageHash.newestTimestamp === -1 || storageHash.newestTimestamp < time) storageHash.newestTimestamp = time;
 
     //remove "Your X on Y was destroyed by Z" from the faction channel
 //    if (systemNarrowcast && !isPublicChannel) return true;
@@ -487,19 +534,17 @@ window.chat.tabToChannel = function(tab) {
 window.chat.toggle = function() {
   var c = $('#chat, #chatcontrols');
   if(c.hasClass('expand')) {
-    $('#chatcontrols a:first').html('<span class="toggle expand"></span>');
     c.removeClass('expand');
     var div = $('#chat > div:visible');
     div.data('ignoreNextScroll', true);
     div.scrollTop(99999999); // scroll to bottom
-    $('.leaflet-control').css('margin-left', '13px');
+    $('.leaflet-control').removeClass('chat-expand');
   } else {
-    $('#chatcontrols a:first').html('<span class="toggle shrink"></span>');
     c.addClass('expand');
-    $('.leaflet-control').css('margin-left', '720px');
+    $('.leaflet-control').addClass('chat-expand');
     chat.needMoreMessages();
   }
-}
+};
 
 
 // called by plugins (or other things?) that need to monitor COMM data streams when the user is not viewing them
@@ -581,7 +626,8 @@ window.chat.chooseTab = function(tab) {
 
   $('#chat > div').hide();
 
-  var elm;
+  var elm = $('#chat' + tab);
+  elm.show();
 
   switch(tab) {
     case 'faction':
@@ -611,9 +657,6 @@ window.chat.chooseTab = function(tab) {
     default:
       throw new Error('chat.chooser was asked to handle unknown button: ' + tt);
   }
-
-  var elm = $('#chat' + tab);
-  elm.show();
 
   if(elm.data('needsScrollTop')) {
     elm.data('ignoreNextScroll', true);

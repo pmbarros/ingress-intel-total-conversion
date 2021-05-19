@@ -1,8 +1,8 @@
 ### jQuery-related components:
 
 * https://github.com/bgrins/spectrum
-  1.8.0-24-g9e04e58
-  spectrum.js: 1d9835b239869d90bf8d3555641d1f7e9cea1f71
+  1.8.1-4-g101b05c
+  spectrum.js: 8fd0a3a5f6a478f319763f999aaf5d8531c52b1d
   used in: draw-tools
 
 
@@ -15,10 +15,10 @@
   used in: draw-tools
 
 * https://github.com/shramov/leaflet-plugins
-  3.3.1
+  3.4.0
   * Bing.js, Bing.addon.applyMaxNativeZoom.js: a1f517a9d78c18c04ae8d9f59264b4e61fb319d1
     used in: basemap-bing
-  * Yandex.js: efd0a870496fa55fd51904fff781b6d214e09fa6
+  * Yandex.js: 51aea9df534b2a82d6795a13fcefde7e47c22fa5
     Yandex.addon.LoadApi.js: ed47982c0c2c9037d74557ae46783e0f294a201b
     used in: basemap-yandex
 
